@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Splat Viewer -> Lunch</title>
+
+
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        height: 100%;
+        background: #c7b89a;
+        overflow: hidden;
+        font-family: monospace;
+      }
+
+      #splat-mount,
+      .splat-section,
+      .splat-section > canvas {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+      .splat-section > canvas {
+        touch-action: none;
+      }
+
+      /* Debug panel — always visible on this page */
+      #debug-panel {
+        display: none;
+        position: fixed;
+        top: 12px;
+        right: 12px;
+        background: rgba(0, 0, 0, 0.85);
+        color: rgb(174, 174, 174);
+        font-family: monospace;
+        font-size: 12px;
+        padding: 10px 14px;
+        border-radius: 8px;
+        z-index: 9999;
+        max-width: 380px;
+        max-height: calc(100vh - 24px);
+        overflow-y: auto;
+        line-height: 1.6;
+      }
+      #debug-panel.visible {
+        display: block;
+      }
+      #debug-controls {
+        margin-top: 8px;
+        border-top: 1px solid rgba(255, 255, 255, 0.2);
+        padding-top: 8px;
+      }
+      #debug-controls label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: #ccc;
+      }
+      #debug-controls input[type="range"] {
+        flex: 1;
+      }
+
+      /* Tiny "back home" link, top-left */
+      #home-link {
+        position: fixed;
+        top: 12px;
+        left: 12px;
+        font-family: monospace;
+        font-size: 12px;
+        color: #2e2e2e;
+        text-decoration: none;
+        opacity: 0.6;
+        z-index: 9999;
+      }
+      #home-link:hover {
+        opacity: 1;
+      }
+
+      /* "Swap splat" button — appears once a viewer is loaded */
+      #reopen-picker {
+        position: fixed;
+        top: 12px;
+        left: 80px;
+        background: rgba(0, 0, 0, 0.7);
+        color: #e0ddd8;
+        border: none;
+        font-family: monospace;
+        font-size: 12px;
+        padding: 6px 10px;
+        border-radius: 4px;
+        cursor: pointer;
+        z-index: 9999;
+      }
+      #reopen-picker:hover {
+        background: rgba(0, 0, 0, 0.9);
+      }
+
+      /* Picker overlay */
+      #picker {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+      }
+      .picker-card {
+        background: #1a1a1a;
+        color: #e0ddd8;
+        padding: 28px;
+        border-radius: 12px;
+        max-width: 420px;
+        width: 90vw;
+        font-family: monospace;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+      }
+      .picker-card h1 {
+        margin: 0 0 6px 0;
+        font-size: 16px;
+        font-weight: 600;
+        letter-spacing: 0.05em;
+      }
+      .picker-card p.tagline {
+        margin: 0 0 20px 0;
+        color: #888;
+        font-size: 11px;
+      }
+      .picker-card .demos {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .picker-card button[data-demo-index] {
+        background: #2a2a2a;
+        color: #e0ddd8;
+        border: 1px solid #444;
+        padding: 12px 16px;
+        border-radius: 6px;
+        cursor: pointer;
+        text-align: left;
+        font-family: inherit;
+        font-size: 13px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+      }
+      .picker-card button[data-demo-index]:hover {
+        background: #333;
+      }
+      .picker-card .meta {
+        color: #888;
+        font-size: 11px;
+      }
+      .picker-card .meta.warn {
+        color: #e8c96e;
+      }
+      .picker-card .divider {
+        text-align: center;
+        color: #666;
+        margin: 18px 0;
+        font-size: 11px;
+      }
+      .picker-card .file-pick {
+        display: block;
+        background: #2a2a2a;
+        border: 1px solid #444;
+        padding: 12px 16px;
+        border-radius: 6px;
+        cursor: pointer;
+        text-align: center;
+        font-size: 13px;
+        color: #e0ddd8;
+      }
+      .picker-card .file-pick:hover {
+        background: #333;
+      }
+      .picker-card .file-pick input {
+        display: none;
+      }
+      .picker-card .dnd-hint {
+        text-align: center;
+        color: #666;
+        margin-top: 8px;
+        font-size: 11px;
+      }
+      .picker-card .cancel {
+        margin-top: 22px;
+        background: transparent;
+        color: #888;
+        border: none;
+        font-family: inherit;
+        font-size: 12px;
+        cursor: pointer;
+        width: 100%;
+        padding: 8px;
+      }
+      .picker-card .cancel:hover {
+        color: #ccc;
+      }
+
+      /* Download progress bar (visible during URL-based splat loads) */
+      #progress-bar {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 3px;
+        background: rgba(255, 255, 255, 0.08);
+        z-index: 10001;
+        pointer-events: none;
+      }
+      #progress-bar .progress-fill {
+        height: 100%;
+        width: 0%;
+        background: #e8c96e;
+        transition: width 0.15s ease-out;
+      }
+      #progress-label {
+        position: fixed;
+        bottom: 12px;
+        right: 12px;
+        background: rgba(0, 0, 0, 0.85);
+        color: #e8c96e;
+        font-family: monospace;
+        font-size: 11px;
+        padding: 6px 10px;
+        border-radius: 4px;
+        z-index: 10001;
+        pointer-events: none;
+      }
+
+      /* Vanilla-mode badge (visible only when body.vanilla) */
+      #vanilla-badge {
+        display: none;
+        position: fixed;
+        top: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #e8c96e;
+        color: #1a1a1a;
+        font-family: monospace;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.1em;
+        padding: 4px 10px;
+        border-radius: 4px;
+        z-index: 9999;
+        pointer-events: none;
+      }
+      body.vanilla #vanilla-badge {
+        display: block;
+      }
+
+      /* Drag-drop overlay (only while dragging files over the page) */
+      body.dragging::after {
+        content: "drop a .ply to load";
+        position: fixed;
+        inset: 0;
+        background: rgba(125, 168, 230, 0.25);
+        color: white;
+        font-family: monospace;
+        font-size: 22px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10001;
+        pointer-events: none;
+      }
+    </style>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.180.0/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/",
+          "@sparkjsdev/spark": "https://sparkjs.dev/releases/spark/2.0.0/spark.module.js"
+        }
+      }
+    </script>
+  </head>
+  <body data-debug>
+    <a id="home-link" href="/">← home</a>
+    <button id="reopen-picker" type="button" hidden>↻ swap splat</button>
+    <div id="vanilla-badge">VANILLA · pure spark default</div>
+    <div id="splat-mount"></div>
+
+    <div id="debug-panel">
+      <div id="debug-log"></div>
+      <div id="debug-controls"></div>
+    </div>
+
+    <div id="progress-bar" hidden>
+      <div class="progress-fill"></div>
+    </div>
+    <div id="progress-label" hidden></div>
+
+    <div id="picker">
+      <div class="picker-card">
+        <h1>-> lunch splats <-</h1>
+        <p class="tagline">
+          load a demo or drop in your own gaussian splat .ply
+        </p>
+
+        <div class="demos" id="demo-buttons"></div>
+
+        <div class="divider">— or —</div>
+
+        <label class="file-pick">
+          Load your own .ply
+          <input id="file-input" type="file" accept=".ply" />
+        </label>
+        <div class="dnd-hint">or drop a .ply anywhere on the page</div>
+
+        <button id="cancel-picker" class="cancel" type="button" hidden>
+          cancel
+        </button>
+      </div>
+    </div>
+
+    <script type="module" src="./splat.js"></script>
+  </body>
+</html>

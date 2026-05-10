@@ -1,0 +1,13 @@
+# OS junk
+.DS_Store
+
+# Vercel local
+.vercel/
+
+# Dependency dirs (not currently used — no build step — but kept for hygiene)
+node_modules/
+
+# Big splat assets — keep them on R2, not in git.
+# Pebbles is the small built-in demo, allowed.
+*.ply
+!pebbles.ply
