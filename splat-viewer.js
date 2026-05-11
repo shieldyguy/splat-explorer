@@ -269,50 +269,85 @@ export function createSplatViewer(cfg, parentEl, overrides = {}) {
   };
 }
 
-// Build the debug panel for a set of viewers. No-ops if debug.active is false.
-// opts.onSelect(viewer, index) fires when the splat selector changes.
-export function setupDebugPanel(viewers, splats, opts = {}) {
+// Share a URL via the best mechanism available, falling back gracefully:
+//   1. Web Share API (mobile + modern desktop Safari/Chrome)
+//   2. Async Clipboard API (HTTPS / localhost)
+//   3. document.execCommand("copy") (everywhere else, e.g. plain HTTP)
+async function shareUrl(url) {
+  const canWebShare =
+    typeof navigator.share === "function" &&
+    (typeof navigator.canShare !== "function" || navigator.canShare({ url }));
+  if (canWebShare) {
+    try {
+      await navigator.share({ url });
+      return;
+    } catch (e) {
+      // User dismissed the share sheet — silent. Otherwise fall through.
+      if (e && e.name === "AbortError") return;
+    }
+  }
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    try {
+      await navigator.clipboard.writeText(url);
+      debug.flash("Link copied");
+      return;
+    } catch {
+      // Permission denied or non-secure context — fall through.
+    }
+  }
+
+  // Legacy fallback — selectable textarea + execCommand.
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = url;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    ta.remove();
+    if (!ok) throw new Error("execCommand returned false");
+    debug.flash("Link copied");
+  } catch {
+    debug.flash("Copy failed");
+  }
+}
+
+// Build the tabbed settings panel for a viewer. No-ops if debug.active is
+// false. Sections: Camera · Shape · Palette · Outline (+ Diag when ?diag).
+export function setupDebugPanel(viewer, opts = {}) {
   if (!debug.active) return { destroy() {}, rebuild() {} };
 
-  // Selector lives in its own section so rebuildControls()'s clear()
-  // doesn't wipe it.
-  const selectorSection = debug.section();
-  // Diagnostics section is only rendered when `?diag` is in the URL
-  // (opts.diagMode). Otherwise we still create the section so destroy()
-  // remains symmetric, but skip wiring any controls into it.
-  const diagSection = debug.section();
-  const splatDebug = debug.section();
-  let selected = viewers[0];
+  const cameraSec = debug.section("Camera");
+  const shapeSec = debug.section("Shape");
+  const paletteSec = debug.section("Palette");
+  const outlineSec = debug.section("Outline");
+  const diagSec = opts.diagMode ? debug.section("Diag") : null;
+
+  const selected = viewer;
   let cancelled = false;
 
-  if (opts.onRestoreDefaults) {
-    selectorSection.button("Restore defaults", {
-      subtle: true,
-      onClick: () => opts.onRestoreDefaults(),
-    });
-  }
-
-  if (viewers.length > 1) {
-    selectorSection.select(
-      "Splat",
-      splats.map((s) => s.label ?? s.file),
-      (i) => {
-        selected = viewers[i];
-        rebuildControls();
-        opts.onSelect?.(selected, i);
-      },
-    );
-  }
+  // Share action — header button. Restore lives in the Camera tab so it
+  // can't be tapped by accident next to Share.
+  const shareBtn = debug.action("Share", {
+    icon: "↗",
+    title: "Share link",
+    onClick: () => {
+      const demoIndex = selected.demoIndex ?? 0;
+      const encoded = encodePresetFromViewer(selected, demoIndex);
+      const url = `${location.origin}${location.pathname}?p=${encoded}`;
+      shareUrl(url);
+    },
+  });
 
   // --- Diagnostic toggles (only when ?diag is in the URL) ---
-  // Five reload-required toggles isolate one variable each in the splat
-  // pipeline; the sixth (passthrough) is a live uniform flip on the outline
-  // composite shader. The current viewer's `diag` reflects URL state.
-  if (opts.diagMode) {
+  if (diagSec) {
     const d = selected.diag ?? {};
-    // `def` mirrors splat.js's DIAG_DEFAULTS — used so toggles that match
-    // production get stripped from the URL instead of cluttering it with
-    // `?key=1` for the default.
+    // `def` mirrors splat.js's DIAG_DEFAULTS — toggles matching production
+    // get stripped from the URL instead of cluttering it with `?key=1`.
     const reloadFlags = [
       { key: "customFrag", label: "Custom frag shader", def: true },
       { key: "customVert", label: "Custom vert shader", def: true },
@@ -321,14 +356,13 @@ export function setupDebugPanel(viewers, splats, opts = {}) {
       { key: "mrt",        label: "MRT + outline pass", def: true },
       { key: "twoPass",    label: "Two-pass geometry",  def: true },
     ];
-    diagSection.header("DIAGNOSTICS");
     reloadFlags.forEach((f) => {
-      diagSection.checkbox(f.label, {
+      diagSec.checkbox(f.label, {
         value: d[f.key] ?? f.def,
         onChange: (on) => opts.onDiagToggle?.(f.key, on, f.def),
       });
     });
-    diagSection.checkbox("Composite passthrough", {
+    diagSec.checkbox("Composite passthrough", {
       value: d.passthrough ?? false,
       onChange: (on) => {
         if (selected.outline) {
@@ -338,18 +372,21 @@ export function setupDebugPanel(viewers, splats, opts = {}) {
         opts.onDiagToggle?.("passthrough", on, false, { skipReload: true });
       },
     });
-    diagSection.button("Reset diagnostics", {
+    diagSec.button("Reset diagnostics", {
       subtle: true,
       onClick: () => opts.onDiagReset?.(),
     });
   }
 
   function rebuildControls() {
-    const { camera, controls, spark, outline, splat, paletteUniforms } =
-      selected;
-    splatDebug.clear();
+    const { camera, spark, outline, splat, paletteUniforms } = selected;
+    cameraSec.clear();
+    shapeSec.clear();
+    paletteSec.clear();
+    outlineSec.clear();
 
-    splatDebug.slider("FOV", {
+    // ── Camera ────────────────────────────────────────────────────────
+    cameraSec.slider("FOV", {
       min: 10,
       max: 120,
       step: 1,
@@ -360,100 +397,19 @@ export function setupDebugPanel(viewers, splats, opts = {}) {
         selected.scheduleRender();
       },
     });
-    splatDebug.slider("Target X", {
-      min: -5,
-      max: 5,
-      step: 0.05,
-      value: controls.target.x,
-      onChange: (v) => {
-        controls.target.x = v;
-        selected.scheduleRender();
-      },
-    });
-    splatDebug.slider("Target Y", {
-      min: -5,
-      max: 5,
-      step: 0.05,
-      value: controls.target.y,
-      onChange: (v) => {
-        controls.target.y = v;
-        selected.scheduleRender();
-      },
-    });
+    if (opts.onRestoreDefaults) {
+      cameraSec.header("Reset");
+      cameraSec.button("Restore defaults", {
+        subtle: true,
+        onClick: () => opts.onRestoreDefaults(),
+      });
+    }
 
-    // --- Splat shape (screen-space pixel controls) ---
+    // ── Shape ─────────────────────────────────────────────────────────
+    // Order: categorical first, then overall sizing, then ratio knobs,
+    // then pixel-space clamps, then edge/visibility cutoffs.
     const onScreenChange = () => selected.scheduleRender();
-    splatDebug.slider("Splat Scale", {
-      min: 0.1,
-      max: 3,
-      step: 0.05,
-      value: spark.uniforms.screenScale.value,
-      onChange: (v) => {
-        spark.uniforms.screenScale.value = v;
-        onScreenChange();
-      },
-    });
-    splatDebug.slider("Isotropy", {
-      min: 0,
-      max: 1,
-      step: 0.01,
-      value: spark.uniforms.screenIsotropy.value,
-      onChange: (v) => {
-        spark.uniforms.screenIsotropy.value = v;
-        onScreenChange();
-      },
-    });
-    splatDebug.slider("Min Length (px)", {
-      min: 0,
-      max: 100,
-      step: 1,
-      value: spark.uniforms.screenMinLength.value,
-      onChange: (v) => {
-        spark.uniforms.screenMinLength.value = v;
-        onScreenChange();
-      },
-    });
-    splatDebug.slider("Max Length (px)", {
-      min: 0,
-      max: 100,
-      step: 1,
-      value: spark.uniforms.screenMaxLength.value,
-      onChange: (v) => {
-        spark.uniforms.screenMaxLength.value = v;
-        onScreenChange();
-      },
-    });
-    splatDebug.slider("Min Width (px)", {
-      min: 0,
-      max: 100,
-      step: 1,
-      value: spark.uniforms.screenMinWidth.value,
-      onChange: (v) => {
-        spark.uniforms.screenMinWidth.value = v;
-        onScreenChange();
-      },
-    });
-    splatDebug.slider("Max Width (px)", {
-      min: 0,
-      max: 100,
-      step: 1,
-      value: spark.uniforms.screenMaxWidth.value,
-      onChange: (v) => {
-        spark.uniforms.screenMaxWidth.value = v;
-        onScreenChange();
-      },
-    });
-    splatDebug.slider("Splat Falloff (0=flat)", {
-      min: 0,
-      max: 1,
-      step: 0.01,
-      value: spark.uniforms.splatFalloff.value,
-      onChange: (v) => {
-        spark.uniforms.splatFalloff.value = v;
-        selected.scheduleRender();
-      },
-    });
-    splatDebug.select(
+    shapeSec.select(
       "Splat Shape",
       ["Ellipse", "Stadium", "Rectangle", "Diamond", "Leaf", "Brush"],
       {
@@ -464,7 +420,27 @@ export function setupDebugPanel(viewers, splats, opts = {}) {
         },
       },
     );
-    splatDebug.slider("Stroke Aspect", {
+    shapeSec.slider("Splat Scale", {
+      min: 0.1,
+      max: 3,
+      step: 0.05,
+      value: spark.uniforms.screenScale.value,
+      onChange: (v) => {
+        spark.uniforms.screenScale.value = v;
+        onScreenChange();
+      },
+    });
+    shapeSec.slider("Isotropy", {
+      min: 0,
+      max: 1,
+      step: 0.01,
+      value: spark.uniforms.screenIsotropy.value,
+      onChange: (v) => {
+        spark.uniforms.screenIsotropy.value = v;
+        onScreenChange();
+      },
+    });
+    shapeSec.slider("Stroke Aspect", {
       min: 0.5,
       max: 6,
       step: 0.05,
@@ -474,20 +450,90 @@ export function setupDebugPanel(viewers, splats, opts = {}) {
         selected.scheduleRender();
       },
     });
+    shapeSec.slider("Falloff", {
+      min: 0,
+      max: 1,
+      step: 0.01,
+      value: spark.uniforms.splatFalloff.value,
+      onChange: (v) => {
+        spark.uniforms.splatFalloff.value = v;
+        selected.scheduleRender();
+      },
+    });
+    shapeSec.slider("Min Length (px)", {
+      min: 0,
+      max: 100,
+      step: 1,
+      value: spark.uniforms.screenMinLength.value,
+      onChange: (v) => {
+        spark.uniforms.screenMinLength.value = v;
+        onScreenChange();
+      },
+    });
+    shapeSec.slider("Max Length (px)", {
+      min: 0,
+      max: 100,
+      step: 1,
+      value: spark.uniforms.screenMaxLength.value,
+      onChange: (v) => {
+        spark.uniforms.screenMaxLength.value = v;
+        onScreenChange();
+      },
+    });
+    shapeSec.slider("Min Width (px)", {
+      min: 0,
+      max: 100,
+      step: 1,
+      value: spark.uniforms.screenMinWidth.value,
+      onChange: (v) => {
+        spark.uniforms.screenMinWidth.value = v;
+        onScreenChange();
+      },
+    });
+    shapeSec.slider("Max Width (px)", {
+      min: 0,
+      max: 100,
+      step: 1,
+      value: spark.uniforms.screenMaxWidth.value,
+      onChange: (v) => {
+        spark.uniforms.screenMaxWidth.value = v;
+        onScreenChange();
+      },
+    });
+    shapeSec.slider("Alpha Threshold", {
+      min: 0,
+      max: 1,
+      step: 0.01,
+      value: spark.uniforms.alphaThreshold.value,
+      onChange: (v) => {
+        spark.uniforms.alphaThreshold.value = v;
+        selected.scheduleRender();
+      },
+    });
+    shapeSec.slider("Min Opacity", {
+      min: 0,
+      max: 1,
+      step: 0.01,
+      value: spark.uniforms.minOpacity.value,
+      onChange: (v) => {
+        spark.uniforms.minOpacity.value = v;
+        selected.scheduleRender();
+      },
+    });
 
-    // --- Color quantization (per-splat dyno modifier) ---
+    // ── Palette ───────────────────────────────────────────────────────
     const updatePalette = () => {
       splat.updateVersion();
       selected.scheduleRender();
     };
-    splatDebug.checkbox("Quantize Colors", {
+    paletteSec.checkbox("Quantize colors", {
       value: paletteUniforms.enabled.value,
       onChange: (on) => {
         paletteUniforms.enabled.value = on;
         updatePalette();
       },
     });
-    splatDebug.slider("Hue Levels", {
+    paletteSec.slider("Hue Levels", {
       min: 1,
       max: 16,
       step: 1,
@@ -497,7 +543,7 @@ export function setupDebugPanel(viewers, splats, opts = {}) {
         updatePalette();
       },
     });
-    splatDebug.slider("Tone Levels (S+V)", {
+    paletteSec.slider("Tone Levels (S+V)", {
       min: 1,
       max: 8,
       step: 1,
@@ -508,69 +554,30 @@ export function setupDebugPanel(viewers, splats, opts = {}) {
       },
     });
 
-    // --- Outline pass ---
+    // ── Outline ───────────────────────────────────────────────────────
     const u = outline.uniforms;
-    splatDebug.slider("Alpha Threshold", {
-      min: 0,
-      max: 1,
-      step: 0.01,
-      value: spark.uniforms.alphaThreshold.value,
+    outlineSec.checkbox("Outline enabled", {
+      value: u.uEnabled.value,
       onChange: (v) => {
-        spark.uniforms.alphaThreshold.value = v;
+        u.uEnabled.value = v;
         selected.scheduleRender();
       },
     });
-    splatDebug.slider("Min Opacity", {
-      min: 0,
-      max: 1,
-      step: 0.01,
-      value: spark.uniforms.minOpacity.value,
+    outlineSec.checkbox("Outlines only", {
+      value: u.uOutlinesOnly.value,
       onChange: (v) => {
-        spark.uniforms.minOpacity.value = v;
+        u.uOutlinesOnly.value = v;
         selected.scheduleRender();
       },
     });
-    splatDebug.slider("Edge Mix (depth↔normal)", {
-      min: 0,
-      max: 1,
-      step: 0.01,
-      value: u.uEdgeMix.value,
-      onChange: (v) => {
-        u.uEdgeMix.value = v;
+    outlineSec.color("Color", {
+      value: "#" + u.uOutlineColor.value.getHexString(),
+      onChange: (hex) => {
+        u.uOutlineColor.value.set(hex);
         selected.scheduleRender();
       },
     });
-    splatDebug.slider("Depth Edge Threshold", {
-      min: 0.001,
-      max: 0.5,
-      step: 0.001,
-      value: u.uDepthThreshold.value,
-      onChange: (v) => {
-        u.uDepthThreshold.value = v;
-        selected.scheduleRender();
-      },
-    });
-    splatDebug.slider("Normal Edge Threshold", {
-      min: 0.01,
-      max: 2.0,
-      step: 0.01,
-      value: u.uNormalThreshold.value,
-      onChange: (v) => {
-        u.uNormalThreshold.value = v;
-        selected.scheduleRender();
-      },
-    });
-    splatDebug.slider("Sample Radius", {
-      min: 0.5,
-      max: 5,
-      step: 0.1,
-      value: u.uRadius.value,
-      onChange: (v) => {
-        u.uRadius.value = v;
-        selected.scheduleRender();
-      },
-    });
-    splatDebug.slider("Outline Width", {
+    outlineSec.slider("Width", {
       min: 1,
       max: 6,
       step: 0.5,
@@ -580,7 +587,7 @@ export function setupDebugPanel(viewers, splats, opts = {}) {
         selected.scheduleRender();
       },
     });
-    splatDebug.slider("Outline Opacity", {
+    outlineSec.slider("Opacity", {
       min: 0,
       max: 1,
       step: 0.05,
@@ -590,65 +597,72 @@ export function setupDebugPanel(viewers, splats, opts = {}) {
         selected.scheduleRender();
       },
     });
-    splatDebug.color("Outline Color", {
-      value: "#" + u.uOutlineColor.value.getHexString(),
-      onChange: (hex) => {
-        u.uOutlineColor.value.set(hex);
+    outlineSec.slider("Edge Mix", {
+      min: 0,
+      max: 1,
+      step: 0.01,
+      value: u.uEdgeMix.value,
+      onChange: (v) => {
+        u.uEdgeMix.value = v;
         selected.scheduleRender();
       },
     });
-    splatDebug.checkbox("Show scene color", {
+    outlineSec.slider("Depth Threshold", {
+      min: 0.001,
+      max: 0.5,
+      step: 0.001,
+      value: u.uDepthThreshold.value,
+      onChange: (v) => {
+        u.uDepthThreshold.value = v;
+        selected.scheduleRender();
+      },
+    });
+    outlineSec.slider("Normal Threshold", {
+      min: 0.01,
+      max: 2.0,
+      step: 0.01,
+      value: u.uNormalThreshold.value,
+      onChange: (v) => {
+        u.uNormalThreshold.value = v;
+        selected.scheduleRender();
+      },
+    });
+    outlineSec.slider("Sample Radius", {
+      min: 0.5,
+      max: 5,
+      step: 0.1,
+      value: u.uRadius.value,
+      onChange: (v) => {
+        u.uRadius.value = v;
+        selected.scheduleRender();
+      },
+    });
+    outlineSec.header("Debug views");
+    outlineSec.checkbox("Show scene color", {
       value: u.uShowColor.value,
       onChange: (v) => {
         u.uShowColor.value = v;
         selected.scheduleRender();
       },
     });
-    splatDebug.checkbox("Show depth buffer", {
+    outlineSec.checkbox("Show depth buffer", {
       value: u.uShowDepth.value,
       onChange: (v) => {
         u.uShowDepth.value = v;
         selected.scheduleRender();
       },
     });
-    splatDebug.checkbox("Show normal buffer", {
+    outlineSec.checkbox("Show normal buffer", {
       value: u.uShowNormals.value,
       onChange: (v) => {
         u.uShowNormals.value = v;
         selected.scheduleRender();
       },
     });
-    splatDebug.checkbox("Outlines only (hide model)", {
-      value: u.uOutlinesOnly.value,
-      onChange: (v) => {
-        u.uOutlinesOnly.value = v;
-        selected.scheduleRender();
-      },
-    });
-    splatDebug.checkbox("Outline enabled", {
-      value: u.uEnabled.value,
-      onChange: (v) => {
-        u.uEnabled.value = v;
-        selected.scheduleRender();
-      },
-    });
-
-    splatDebug.button("Copy Link", () => {
-      const demoIndex = selected.demoIndex ?? 0;
-      const encoded = encodePresetFromViewer(selected, demoIndex);
-      const url = `${location.origin}${location.pathname}?p=${encoded}`;
-      const ta = document.createElement("textarea");
-      ta.value = url;
-      ta.style.position = "fixed";
-      ta.style.opacity = "0";
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      ta.remove();
-      splatDebug.flash("Link copied!");
-    });
   }
   rebuildControls();
+  // Default tab — Shape, where most of the visual experimentation happens.
+  debug.setActiveSection("Shape");
 
   // Live readout
   function tick() {
@@ -675,9 +689,12 @@ export function setupDebugPanel(viewers, splats, opts = {}) {
     rebuild: rebuildControls,
     destroy() {
       cancelled = true;
-      selectorSection.remove();
-      diagSection.remove();
-      splatDebug.remove();
+      cameraSec.remove();
+      shapeSec.remove();
+      paletteSec.remove();
+      outlineSec.remove();
+      diagSec?.remove();
+      shareBtn?.remove();
     },
   };
 }

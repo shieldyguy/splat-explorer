@@ -3,10 +3,30 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Splat Viewer -> Lunch</title>
+    <title>Splat Explorer</title>
 
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400..600&display=swap"
+    />
 
     <style>
+      :root {
+        --ink: #1c1a17;
+        --ink-soft: #5a5650;
+        --ink-faint: #a39d96;
+        --hairline: rgba(28, 26, 23, 0.1);
+        --hairline-strong: rgba(28, 26, 23, 0.22);
+        --surface: #fcfaf5;
+        --surface-elev: #ffffff;
+        --bg-tan: #c7b89a;
+        --serif: "Source Serif 4", "Source Serif Pro", Georgia,
+          "Times New Roman", serif;
+        --mono: ui-monospace, "SF Mono", "Menlo", monospace;
+      }
+
       * {
         margin: 0;
         padding: 0;
@@ -16,9 +36,13 @@
       html,
       body {
         height: 100%;
-        background: #c7b89a;
+        background: var(--bg-tan);
         overflow: hidden;
-        font-family: monospace;
+        font-family: var(--serif);
+        font-size: 13px;
+        color: var(--ink);
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
       }
 
       #splat-mount,
@@ -34,277 +58,664 @@
         touch-action: none;
       }
 
-      /* Debug panel — always visible on this page */
-      #debug-panel {
-        display: none;
-        position: fixed;
-        top: 12px;
-        right: 12px;
-        background: rgba(0, 0, 0, 0.85);
-        color: rgb(174, 174, 174);
-        font-family: monospace;
-        font-size: 12px;
-        padding: 10px 14px;
-        border-radius: 8px;
-        z-index: 9999;
-        max-width: 380px;
-        max-height: calc(100vh - 24px);
-        overflow-y: auto;
-        line-height: 1.6;
-      }
-      #debug-panel.visible {
-        display: block;
-      }
-      #debug-controls {
-        margin-top: 8px;
-        border-top: 1px solid rgba(255, 255, 255, 0.2);
-        padding-top: 8px;
-      }
-      #debug-controls label {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        color: #ccc;
-      }
-      #debug-controls input[type="range"] {
-        flex: 1;
-      }
+      /* ── Floating chrome buttons (top-left) ────────────────────── */
 
-      /* Drawer toggle — only used on mobile (hidden on desktop). */
-      #debug-toggle {
-        display: none;
-      }
-
-      /* Mobile: debug pane becomes a bottom drawer covering ~25vh when
-         open. Closed state slides off-screen leaving just the toggle
-         visible above the screen edge. */
-      @media (max-width: 768px) {
-        #debug-panel {
-          top: auto;
-          right: 0;
-          left: 0;
-          bottom: 0;
-          max-width: none;
-          max-height: 25vh;
-          border-radius: 12px 12px 0 0;
-          padding: 0 14px;
-          /* Closed by default: push the panel down so only the toggle
-             handle sits above the screen edge. Open: slide to bottom. */
-          transform: translateY(calc(100% - 36px));
-          transition: transform 0.2s ease-out;
-          /* Extra room at the bottom of the scroll area so the last
-             control can clear iOS browser chrome / safe area. */
-          padding-bottom: calc(48px + env(safe-area-inset-bottom, 0));
-        }
-        #debug-panel.drawer-open {
-          transform: translateY(0);
-        }
-        #debug-toggle {
-          display: block;
-          position: sticky;
-          top: 0;
-          width: calc(100% + 28px);
-          margin: 0 -14px 8px;
-          background: rgba(255, 255, 255, 0.06);
-          color: #e8c96e;
-          border: none;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-          padding: 10px 14px;
-          font-family: monospace;
-          font-size: 11px;
-          letter-spacing: 0.12em;
-          cursor: pointer;
-          text-align: center;
-          z-index: 1;
-        }
-      }
-
-      /* Tiny "back home" link, top-left */
       #home-link {
         position: fixed;
-        top: 12px;
-        left: 12px;
-        font-family: monospace;
-        font-size: 12px;
-        color: #2e2e2e;
+        top: 16px;
+        left: 16px;
+        font-size: 13px;
+        color: var(--ink);
         text-decoration: none;
-        opacity: 0.6;
+        opacity: 0.55;
         z-index: 9999;
       }
       #home-link:hover {
-        opacity: 1;
+        opacity: 0.9;
       }
 
-      /* "Swap splat" button — appears once a viewer is loaded */
       #reopen-picker {
         position: fixed;
-        top: 12px;
-        left: 80px;
-        background: rgba(0, 0, 0, 0.7);
-        color: #e0ddd8;
-        border: none;
-        font-family: monospace;
+        top: 16px;
+        left: 86px;
+        background: var(--surface);
+        color: var(--ink);
+        border: 1px solid var(--hairline-strong);
+        font-family: var(--serif);
         font-size: 12px;
-        padding: 6px 10px;
-        border-radius: 4px;
+        padding: 5px 11px;
+        border-radius: 3px;
         cursor: pointer;
         z-index: 9999;
       }
       #reopen-picker:hover {
-        background: rgba(0, 0, 0, 0.9);
+        background: var(--surface-elev);
       }
 
-      /* Picker overlay */
+      /* ── Settings panel ────────────────────────────────────────── */
+
+      #debug-panel {
+        display: none;
+        position: fixed;
+        z-index: 9999;
+        background: var(--surface);
+        color: var(--ink);
+        font-family: var(--serif);
+        font-size: 13px;
+        line-height: 1.4;
+        top: 16px;
+        right: 16px;
+        width: 360px;
+        max-height: calc(100vh - 32px);
+        border-radius: 4px;
+        box-shadow:
+          0 0 0 1px var(--hairline),
+          0 18px 50px -20px rgba(28, 26, 23, 0.28);
+        flex-direction: column;
+        overflow: hidden;
+      }
+      #debug-panel.visible {
+        display: flex;
+      }
+
+      #debug-handle {
+        display: none;
+      }
+
+      .panel-wordmark {
+        padding: 14px 18px 4px;
+        font-weight: 500;
+        font-size: 16px;
+        letter-spacing: -0.005em;
+        color: var(--ink);
+      }
+
+      .panel-bar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        padding: 0 18px;
+        border-bottom: 1px solid var(--hairline);
+      }
+      .panel-actions {
+        display: flex;
+        gap: 6px;
+        flex-shrink: 0;
+      }
+      .panel-action {
+        background: transparent;
+        border: 1px solid var(--hairline-strong);
+        color: var(--ink);
+        font-family: var(--serif);
+        font-size: 12px;
+        padding: 5px 9px;
+        border-radius: 3px;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        transition:
+          background-color 0.12s ease,
+          border-color 0.12s ease;
+        line-height: 1;
+      }
+      .panel-action:hover {
+        background: rgba(28, 26, 23, 0.05);
+        border-color: var(--ink);
+      }
+      .panel-action:active {
+        background: rgba(28, 26, 23, 0.1);
+      }
+      .panel-action-icon {
+        font-size: 13px;
+      }
+
+      .panel-tabs {
+        display: flex;
+        gap: 20px;
+        min-width: 0;
+      }
+      .tab {
+        background: none;
+        border: none;
+        font-family: var(--serif);
+        font-size: 13.5px;
+        font-weight: 400;
+        color: var(--ink-soft);
+        padding: 10px 0 9px;
+        cursor: pointer;
+        position: relative;
+        outline: none;
+      }
+      .tab:focus-visible {
+        outline: 1px solid var(--ink);
+        outline-offset: 2px;
+      }
+      .tab:hover {
+        color: var(--ink);
+      }
+      .tab.active {
+        color: var(--ink);
+        font-weight: 500;
+      }
+      .tab.active::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: -1px;
+        height: 1.5px;
+        background: var(--ink);
+      }
+
+      .panel-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 2px 18px 16px;
+        -webkit-overflow-scrolling: touch;
+      }
+      .panel-section[hidden] {
+        display: none;
+      }
+
+      .control-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 0;
+        border-bottom: 1px solid var(--hairline);
+        min-height: 38px;
+      }
+      .control-row:last-child {
+        border-bottom: 0;
+      }
+      .control-label {
+        flex: 1;
+        font-size: 13px;
+        color: var(--ink);
+      }
+
+      .control-header {
+        font-size: 10.5px;
+        font-weight: 500;
+        color: var(--ink-faint);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        padding: 16px 0 6px;
+        margin-top: 6px;
+        border-top: 1px solid var(--hairline);
+      }
+
+      /* Sliders */
+      .control-range {
+        appearance: none;
+        -webkit-appearance: none;
+        background: transparent;
+        width: 130px;
+        height: 16px;
+        margin: 0;
+        cursor: pointer;
+        flex-shrink: 0;
+      }
+      .control-range::-webkit-slider-runnable-track {
+        height: 1px;
+        background: var(--hairline-strong);
+        border-radius: 1px;
+      }
+      .control-range::-moz-range-track {
+        height: 1px;
+        background: var(--hairline-strong);
+        border-radius: 1px;
+      }
+      .control-range::-webkit-slider-thumb {
+        appearance: none;
+        -webkit-appearance: none;
+        width: 12px;
+        height: 12px;
+        background: var(--ink);
+        border-radius: 50%;
+        border: 0;
+        margin-top: -5.5px;
+        cursor: pointer;
+      }
+      .control-range::-moz-range-thumb {
+        width: 12px;
+        height: 12px;
+        background: var(--ink);
+        border-radius: 50%;
+        border: 0;
+        cursor: pointer;
+      }
+      .control-range:focus {
+        outline: none;
+      }
+
+      /* Numeric readout */
+      .control-num {
+        width: 50px;
+        background: transparent;
+        color: var(--ink);
+        border: 0;
+        border-bottom: 1px solid var(--hairline);
+        padding: 2px 2px 2px 0;
+        font-family: var(--serif);
+        font-size: 12.5px;
+        font-variant-numeric: tabular-nums;
+        text-align: right;
+        outline: none;
+        flex-shrink: 0;
+      }
+      .control-num:focus {
+        border-bottom-color: var(--ink);
+      }
+      .control-num::-webkit-outer-spin-button,
+      .control-num::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+      }
+      .control-num[type="number"] {
+        -moz-appearance: textfield;
+      }
+
+      /* Select */
+      .control-selectbox {
+        background: transparent;
+        border: 1px solid var(--hairline-strong);
+        color: var(--ink);
+        font-family: var(--serif);
+        font-size: 12.5px;
+        padding: 4px 22px 4px 8px;
+        border-radius: 2px;
+        cursor: pointer;
+        -webkit-appearance: none;
+        appearance: none;
+        background-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%231c1a17' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 7px center;
+        background-size: 8px;
+      }
+      .control-selectbox:hover {
+        border-color: var(--ink);
+      }
+      .control-selectbox:focus {
+        outline: none;
+        border-color: var(--ink);
+      }
+
+      /* Checkbox */
+      .control-checkbox {
+        cursor: pointer;
+      }
+      .control-check {
+        appearance: none;
+        -webkit-appearance: none;
+        width: 14px;
+        height: 14px;
+        border: 1px solid var(--hairline-strong);
+        border-radius: 2px;
+        background: var(--surface-elev);
+        cursor: pointer;
+        position: relative;
+        margin: 0;
+        flex-shrink: 0;
+        transition:
+          background-color 0.1s ease,
+          border-color 0.1s ease;
+      }
+      .control-check:hover {
+        border-color: var(--ink);
+      }
+      .control-check:checked {
+        background: var(--ink);
+        border-color: var(--ink);
+      }
+      .control-check:checked::after {
+        content: "";
+        position: absolute;
+        left: 4px;
+        top: 1px;
+        width: 4px;
+        height: 8px;
+        border: solid var(--surface);
+        border-width: 0 1.5px 1.5px 0;
+        transform: rotate(45deg);
+      }
+
+      /* Color picker */
+      .control-colorbox {
+        width: 30px;
+        height: 20px;
+        border: 1px solid var(--hairline-strong);
+        border-radius: 2px;
+        padding: 0;
+        cursor: pointer;
+        background: var(--surface-elev);
+      }
+      .control-colorbox::-webkit-color-swatch-wrapper {
+        padding: 2px;
+      }
+      .control-colorbox::-webkit-color-swatch {
+        border: 0;
+        border-radius: 1px;
+      }
+
+      /* Button */
+      .control-button {
+        background: var(--ink);
+        color: var(--surface);
+        border: 1px solid var(--ink);
+        font-family: var(--serif);
+        font-size: 12.5px;
+        padding: 8px 12px;
+        border-radius: 3px;
+        cursor: pointer;
+        width: 100%;
+        margin-top: 12px;
+      }
+      .control-button.subtle {
+        background: transparent;
+        color: var(--ink);
+      }
+      .control-button:hover {
+        opacity: 0.85;
+      }
+
+      /* Toast — global flash */
+      #debug-toast {
+        position: absolute;
+        bottom: 16px;
+        left: 50%;
+        transform: translate(-50%, 8px);
+        background: var(--ink);
+        color: var(--surface);
+        font-family: var(--serif);
+        font-size: 12px;
+        padding: 6px 14px;
+        border-radius: 3px;
+        opacity: 0;
+        pointer-events: none;
+        transition:
+          opacity 0.16s ease,
+          transform 0.16s ease;
+        z-index: 2;
+      }
+      #debug-toast.visible {
+        opacity: 1;
+        transform: translate(-50%, 0);
+      }
+
+      /* Telemetry log — dev-only (?debug) */
+      #debug-log {
+        border-top: 1px solid var(--hairline);
+        padding: 10px 18px;
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--ink-soft);
+        line-height: 1.55;
+        max-height: 140px;
+        overflow-y: auto;
+      }
+      .log-key {
+        color: var(--ink-faint);
+      }
+
+      /* ── Mobile bottom sheet ───────────────────────────────────── */
+
+      @media (max-width: 768px) {
+        #debug-panel {
+          top: auto;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          width: 100%;
+          max-height: 33vh;
+          border-radius: 14px 14px 0 0;
+          transform: translateY(calc(33vh - 32px));
+          transition: transform 0.22s ease-out;
+          box-shadow: 0 -2px 28px -8px rgba(28, 26, 23, 0.28);
+        }
+        #debug-panel.drawer-open {
+          transform: translateY(0);
+        }
+
+        #debug-handle {
+          display: block;
+          width: 100%;
+          background: var(--surface);
+          border: 0;
+          padding: 0;
+          cursor: pointer;
+          position: relative;
+          height: 32px;
+          flex-shrink: 0;
+        }
+        #debug-handle::after {
+          content: "";
+          position: absolute;
+          top: 13px;
+          left: 50%;
+          transform: translateX(-50%);
+          width: 38px;
+          height: 3px;
+          background: var(--hairline-strong);
+          border-radius: 2px;
+          transition: background-color 0.15s ease;
+        }
+        #debug-handle:active::after {
+          background: var(--ink);
+        }
+
+        /* Hide wordmark; the bar (tabs + actions) is the visual header */
+        .panel-wordmark {
+          display: none;
+        }
+
+        .panel-bar {
+          padding: 0 14px;
+          gap: 10px;
+        }
+        .panel-tabs {
+          gap: 14px;
+        }
+        .tab {
+          font-size: 13px;
+          white-space: nowrap;
+        }
+        .panel-actions {
+          gap: 4px;
+        }
+
+        .panel-body {
+          padding: 4px 14px calc(14px + env(safe-area-inset-bottom, 0));
+        }
+        .control-range {
+          width: 120px;
+        }
+
+        #home-link {
+          top: 12px;
+          left: 12px;
+        }
+        #reopen-picker {
+          top: 12px;
+          left: 78px;
+          padding: 4px 9px;
+          font-size: 11px;
+        }
+      }
+
+      /* ── Picker overlay ─────────────────────────────────────────── */
+
       #picker {
         position: fixed;
         inset: 0;
-        background: rgba(0, 0, 0, 0.6);
+        background: rgba(28, 26, 23, 0.45);
         display: flex;
         align-items: center;
         justify-content: center;
         z-index: 10000;
       }
       .picker-card {
-        background: #1a1a1a;
-        color: #e0ddd8;
-        padding: 28px;
-        border-radius: 12px;
+        background: var(--surface);
+        color: var(--ink);
+        padding: 32px 32px 24px;
+        border-radius: 6px;
         max-width: 420px;
         width: 90vw;
-        font-family: monospace;
-        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+        font-family: var(--serif);
+        box-shadow: 0 24px 60px -20px rgba(28, 26, 23, 0.4);
       }
       .picker-card h1 {
-        margin: 0 0 6px 0;
-        font-size: 16px;
-        font-weight: 600;
-        letter-spacing: 0.05em;
+        margin: 0 0 4px 0;
+        font-weight: 500;
+        font-size: 24px;
+        letter-spacing: -0.01em;
       }
       .picker-card p.tagline {
-        margin: 0 0 20px 0;
-        color: #888;
-        font-size: 11px;
+        margin: 0 0 22px 0;
+        color: var(--ink-soft);
+        font-size: 12.5px;
+        line-height: 1.5;
       }
       .picker-card .demos {
         display: flex;
         flex-direction: column;
-        gap: 8px;
+        gap: 6px;
       }
       .picker-card button[data-demo-index] {
-        background: #2a2a2a;
-        color: #e0ddd8;
-        border: 1px solid #444;
-        padding: 12px 16px;
-        border-radius: 6px;
+        background: transparent;
+        color: var(--ink);
+        border: 1px solid var(--hairline-strong);
+        padding: 11px 14px;
+        border-radius: 3px;
         cursor: pointer;
         text-align: left;
-        font-family: inherit;
-        font-size: 13px;
+        font-family: var(--serif);
+        font-size: 13.5px;
         display: flex;
         justify-content: space-between;
         align-items: center;
         gap: 12px;
+        transition:
+          background-color 0.12s ease,
+          border-color 0.12s ease;
       }
       .picker-card button[data-demo-index]:hover {
-        background: #333;
+        background: rgba(28, 26, 23, 0.04);
+        border-color: var(--ink);
       }
       .picker-card .meta {
-        color: #888;
-        font-size: 11px;
+        color: var(--ink-faint);
+        font-size: 11.5px;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.02em;
       }
       .picker-card .meta.warn {
-        color: #e8c96e;
+        color: var(--ink-soft);
       }
       .picker-card .divider {
         text-align: center;
-        color: #666;
+        color: var(--ink-faint);
         margin: 18px 0;
-        font-size: 11px;
+        font-size: 10.5px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        font-weight: 500;
       }
       .picker-card .file-pick {
         display: block;
-        background: #2a2a2a;
-        border: 1px solid #444;
-        padding: 12px 16px;
-        border-radius: 6px;
+        background: transparent;
+        color: var(--ink);
+        border: 1px solid var(--hairline-strong);
+        padding: 11px 14px;
+        border-radius: 3px;
         cursor: pointer;
         text-align: center;
-        font-size: 13px;
-        color: #e0ddd8;
+        font-size: 13.5px;
+        transition:
+          background-color 0.12s ease,
+          border-color 0.12s ease;
       }
       .picker-card .file-pick:hover {
-        background: #333;
+        background: rgba(28, 26, 23, 0.04);
+        border-color: var(--ink);
       }
       .picker-card .file-pick input {
         display: none;
       }
       .picker-card .dnd-hint {
         text-align: center;
-        color: #666;
-        margin-top: 8px;
-        font-size: 11px;
+        color: var(--ink-faint);
+        margin-top: 10px;
+        font-size: 12px;
       }
       .picker-card .cancel {
         margin-top: 22px;
         background: transparent;
-        color: #888;
+        color: var(--ink-soft);
         border: none;
-        font-family: inherit;
-        font-size: 12px;
+        font-family: var(--serif);
+        font-size: 12.5px;
         cursor: pointer;
         width: 100%;
         padding: 8px;
       }
       .picker-card .cancel:hover {
-        color: #ccc;
+        color: var(--ink);
       }
 
-      /* Download progress bar (visible during URL-based splat loads) */
+      /* ── Progress bar ──────────────────────────────────────────── */
+
       #progress-bar {
         position: fixed;
         bottom: 0;
         left: 0;
         right: 0;
-        height: 3px;
-        background: rgba(255, 255, 255, 0.08);
+        height: 2px;
+        background: rgba(28, 26, 23, 0.08);
         z-index: 10001;
         pointer-events: none;
       }
       #progress-bar .progress-fill {
         height: 100%;
         width: 0%;
-        background: #e8c96e;
+        background: var(--ink);
         transition: width 0.15s ease-out;
       }
       #progress-label {
         position: fixed;
         bottom: 12px;
         right: 12px;
-        background: rgba(0, 0, 0, 0.85);
-        color: #e8c96e;
-        font-family: monospace;
-        font-size: 11px;
-        padding: 6px 10px;
-        border-radius: 4px;
+        background: var(--surface);
+        color: var(--ink);
+        border: 1px solid var(--hairline-strong);
+        font-family: var(--serif);
+        font-variant-numeric: tabular-nums;
+        font-size: 12px;
+        padding: 5px 10px;
+        border-radius: 3px;
         z-index: 10001;
         pointer-events: none;
       }
 
-      /* Vanilla-mode badge (visible only when body.vanilla) */
+      /* ── Vanilla-mode badge ─────────────────────────────────────── */
+
       #vanilla-badge {
         display: none;
         position: fixed;
-        top: 12px;
+        top: 16px;
         left: 50%;
         transform: translateX(-50%);
-        background: #e8c96e;
-        color: #1a1a1a;
-        font-family: monospace;
-        font-size: 11px;
-        font-weight: 600;
-        letter-spacing: 0.1em;
-        padding: 4px 10px;
-        border-radius: 4px;
+        background: var(--surface);
+        color: var(--ink);
+        border: 1px solid var(--hairline-strong);
+        font-size: 10.5px;
+        font-weight: 500;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        padding: 5px 12px;
+        border-radius: 3px;
         z-index: 9999;
         pointer-events: none;
       }
@@ -312,20 +723,22 @@
         display: block;
       }
 
-      /* Drag-drop overlay (only while dragging files over the page) */
+      /* ── Drag-drop overlay ──────────────────────────────────────── */
+
       body.dragging::after {
         content: "drop a .ply to load";
         position: fixed;
         inset: 0;
-        background: rgba(125, 168, 230, 0.25);
-        color: white;
-        font-family: monospace;
+        background: rgba(252, 250, 245, 0.7);
+        color: var(--ink);
         font-size: 22px;
+        font-weight: 500;
         display: flex;
         align-items: center;
         justify-content: center;
         z-index: 10001;
         pointer-events: none;
+        letter-spacing: -0.005em;
       }
     </style>
 
@@ -342,15 +755,24 @@
   <body data-debug>
     <a id="home-link" href="/">← home</a>
     <button id="reopen-picker" type="button" hidden>↻ swap splat</button>
-    <div id="vanilla-badge">VANILLA · pure spark default</div>
+    <div id="vanilla-badge">vanilla · pure spark default</div>
     <div id="splat-mount"></div>
 
     <div id="debug-panel">
-      <button id="debug-toggle" type="button" aria-expanded="false">
-        ▾ debug
-      </button>
+      <button
+        id="debug-handle"
+        type="button"
+        aria-expanded="false"
+        aria-label="Toggle settings"
+      ></button>
+      <div class="panel-wordmark">splat explorer</div>
+      <div class="panel-bar">
+        <div id="debug-tabs" class="panel-tabs" role="tablist"></div>
+        <div id="debug-actions" class="panel-actions"></div>
+      </div>
+      <div id="debug-body" class="panel-body"></div>
+      <div id="debug-toast"></div>
       <div id="debug-log"></div>
-      <div id="debug-controls"></div>
     </div>
 
     <div id="progress-bar" hidden>
@@ -360,7 +782,7 @@
 
     <div id="picker">
       <div class="picker-card">
-        <h1>-> lunch splats <-</h1>
+        <h1>splat explorer</h1>
         <p class="tagline">
           load a demo or drop in your own gaussian splat .ply
         </p>

@@ -158,11 +158,11 @@ export function createOutlinePass({ width = 1, height = 1 } = {}) {
     uResolution: { value: new THREE.Vector2(width, height) },
     uDepthThreshold: { value: 0.03 },
     uNormalThreshold: { value: 0.4 },
-    uEdgeMix: { value: 1.0 },     // default: pure normal edges
+    uEdgeMix: { value: 0.0 },     // default: pure depth edges
     uRadius: { value: 1.5 },
     uOutlineWidth: { value: 2.0 },
     uOutlineColor: { value: new THREE.Color("#171717") },
-    uOutlineOpacity: { value: 0.0 },
+    uOutlineOpacity: { value: 1.0 },
     uNear: { value: 0.1 },
     uFar: { value: 100.0 },
     uShowDepth: { value: false },

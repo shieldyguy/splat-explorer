@@ -216,8 +216,7 @@ function loadCfg(cfg, demoIndex = null, loadOpts = {}) {
     if (inheritedSettings) {
       applyPresetToViewer(viewer, inheritedSettings, { keepCamera });
     }
-    currentDebug = setupDebugPanel([viewer], [cfg], {
-      onSelect: undefined,
+    currentDebug = setupDebugPanel(viewer, {
       onRestoreDefaults: handleRestoreDefaults,
       diagMode: DIAG_MODE,
       onDiagToggle: (key, on, def, opts2 = {}) => {
