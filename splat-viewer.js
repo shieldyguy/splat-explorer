@@ -53,7 +53,7 @@ export function createSplatViewer(cfg, parentEl, overrides = {}) {
     // depth test against the previous one, so the depth buffer fills up
     // correctly without disrupting alpha accumulation.
     depthWrite: true,
-    sortRadial: false,
+    sortRadial: true,
     vertexShader: SPLAT_VERT_GLSL,
     fragmentShader: SPLAT_FRAG_GLSL,
     extraUniforms: {
@@ -102,7 +102,8 @@ export function createSplatViewer(cfg, parentEl, overrides = {}) {
   splat.rotation.x = Math.PI;
   scene.add(splat);
 
-  const { modifier: paletteModifier, uniforms: paletteUniforms } = createPaletteModifier();
+  const { modifier: paletteModifier, uniforms: paletteUniforms } =
+    createPaletteModifier();
   splat.objectModifier = paletteModifier;
   splat.updateGenerator();
 
@@ -219,7 +220,8 @@ export function setupDebugPanel(viewers, splats, opts = {}) {
   }
 
   function rebuildControls() {
-    const { camera, controls, spark, outline, splat, paletteUniforms } = selected;
+    const { camera, controls, spark, outline, splat, paletteUniforms } =
+      selected;
     splatDebug.clear();
 
     splatDebug.slider("FOV", {
@@ -520,7 +522,6 @@ export function setupDebugPanel(viewers, splats, opts = {}) {
       ta.remove();
       splatDebug.flash("Link copied!");
     });
-
   }
   rebuildControls();
 
@@ -661,8 +662,15 @@ export function createVanillaSplatViewer(cfg, parentEl, overrides = {}) {
   }
 
   return {
-    cfg, camera, controls, renderer, section, scheduleRender,
-    spark, splat, destroy,
+    cfg,
+    camera,
+    controls,
+    renderer,
+    section,
+    scheduleRender,
+    spark,
+    splat,
+    destroy,
   };
 }
 
