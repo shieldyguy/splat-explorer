@@ -636,7 +636,7 @@ export function setupDebugPanel(viewers, splats, opts = {}) {
     splatDebug.button("Copy Link", () => {
       const demoIndex = selected.demoIndex ?? 0;
       const encoded = encodePresetFromViewer(selected, demoIndex);
-      const url = `${location.origin}/splat/?p=${encoded}`;
+      const url = `${location.origin}${location.pathname}?p=${encoded}`;
       const ta = document.createElement("textarea");
       ta.value = url;
       ta.style.position = "fixed";
