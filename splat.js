@@ -19,6 +19,12 @@ import {
 const VANILLA = new URLSearchParams(location.search).has("vanilla");
 if (VANILLA) document.body.classList.add("vanilla");
 
+// `?diag` gates the DIAGNOSTICS section in the debug panel. Without it,
+// the panel stays clean (just the splat controls). Individual diag flags
+// (customFrag, twoPass, ...) still take effect if present in the URL —
+// `?diag` only controls whether the toggle UI is rendered.
+const DIAG_MODE = new URLSearchParams(location.search).has("diag");
+
 // Per-knob diagnostic flags read from the URL. Defaults are production
 // behavior — flipping one reloads the viewer with that single pipeline
 // variable changed, useful for poking at the renderer or hunting regressions.
@@ -213,6 +219,7 @@ function loadCfg(cfg, demoIndex = null, loadOpts = {}) {
     currentDebug = setupDebugPanel([viewer], [cfg], {
       onSelect: undefined,
       onRestoreDefaults: handleRestoreDefaults,
+      diagMode: DIAG_MODE,
       onDiagToggle: (key, on, def, opts2 = {}) => {
         writeDiagFlag(key, on, def);
         if (!opts2.skipReload) reloadViewerForDiag();

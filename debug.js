@@ -2,6 +2,7 @@
 const panel = document.getElementById("debug-panel");
 const logEl = document.getElementById("debug-log");
 const controlsEl = document.getElementById("debug-controls");
+const toggleBtn = document.getElementById("debug-toggle");
 
 // Active when ?debug is in the URL OR when the host page sets a
 // `<body data-debug>` attribute (used by /splat/, where the panel is
@@ -10,6 +11,20 @@ export const active =
   new URLSearchParams(window.location.search).has("debug") ||
   document.body.hasAttribute("data-debug");
 if (active) panel.classList.add("visible");
+
+// Mobile-only drawer toggle. The button is hidden on desktop via CSS;
+// here we just wire the click to flip the .drawer-open class and update
+// the chevron + aria state. CSS handles all the positioning.
+if (toggleBtn) {
+  const setOpen = (open) => {
+    panel.classList.toggle("drawer-open", open);
+    toggleBtn.setAttribute("aria-expanded", open ? "true" : "false");
+    toggleBtn.textContent = open ? "▴ debug" : "▾ debug";
+  };
+  toggleBtn.addEventListener("click", () => {
+    setOpen(!panel.classList.contains("drawer-open"));
+  });
+}
 
 const lines = {};
 

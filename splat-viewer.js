@@ -277,6 +277,9 @@ export function setupDebugPanel(viewers, splats, opts = {}) {
   // Selector lives in its own section so rebuildControls()'s clear()
   // doesn't wipe it.
   const selectorSection = debug.section();
+  // Diagnostics section is only rendered when `?diag` is in the URL
+  // (opts.diagMode). Otherwise we still create the section so destroy()
+  // remains symmetric, but skip wiring any controls into it.
   const diagSection = debug.section();
   const splatDebug = debug.section();
   let selected = viewers[0];
@@ -301,44 +304,45 @@ export function setupDebugPanel(viewers, splats, opts = {}) {
     );
   }
 
-  // --- Diagnostic toggles ---
+  // --- Diagnostic toggles (only when ?diag is in the URL) ---
   // Five reload-required toggles isolate one variable each in the splat
   // pipeline; the sixth (passthrough) is a live uniform flip on the outline
   // composite shader. The current viewer's `diag` reflects URL state.
-  const d = selected.diag ?? {};
-  // `def` mirrors splat.js's DIAG_DEFAULTS — used so toggles that match
-  // production get stripped from the URL instead of cluttering it with
-  // `?key=1` for the default.
-  const reloadFlags = [
-    { key: "customFrag", label: "Custom frag shader", def: true },
-    { key: "customVert", label: "Custom vert shader", def: true },
-    { key: "depthWrite", label: "Depth write",        def: true },
-    { key: "strictSort", label: "Strict z-sort",      def: false },
-    { key: "mrt",        label: "MRT + outline pass", def: true },
-    { key: "twoPass",    label: "Two-pass geometry",  def: true },
-  ];
-  diagSection.header("DIAGNOSTICS");
-  reloadFlags.forEach((f) => {
-    diagSection.checkbox(f.label, {
-      value: d[f.key] ?? f.def,
-      onChange: (on) => opts.onDiagToggle?.(f.key, on, f.def),
+  if (opts.diagMode) {
+    const d = selected.diag ?? {};
+    // `def` mirrors splat.js's DIAG_DEFAULTS — used so toggles that match
+    // production get stripped from the URL instead of cluttering it with
+    // `?key=1` for the default.
+    const reloadFlags = [
+      { key: "customFrag", label: "Custom frag shader", def: true },
+      { key: "customVert", label: "Custom vert shader", def: true },
+      { key: "depthWrite", label: "Depth write",        def: true },
+      { key: "strictSort", label: "Strict z-sort",      def: false },
+      { key: "mrt",        label: "MRT + outline pass", def: true },
+      { key: "twoPass",    label: "Two-pass geometry",  def: true },
+    ];
+    diagSection.header("DIAGNOSTICS");
+    reloadFlags.forEach((f) => {
+      diagSection.checkbox(f.label, {
+        value: d[f.key] ?? f.def,
+        onChange: (on) => opts.onDiagToggle?.(f.key, on, f.def),
+      });
     });
-  });
-  diagSection.checkbox("Composite passthrough", {
-    value: d.passthrough ?? false,
-    onChange: (on) => {
-      if (selected.outline) {
-        selected.outline.uniforms.uPassthrough.value = on;
-        selected.scheduleRender();
-      }
-      // Persist so reloads keep the toggle (no viewer rebuild needed here).
-      opts.onDiagToggle?.("passthrough", on, false, { skipReload: true });
-    },
-  });
-  diagSection.button("Reset diagnostics", {
-    subtle: true,
-    onClick: () => opts.onDiagReset?.(),
-  });
+    diagSection.checkbox("Composite passthrough", {
+      value: d.passthrough ?? false,
+      onChange: (on) => {
+        if (selected.outline) {
+          selected.outline.uniforms.uPassthrough.value = on;
+          selected.scheduleRender();
+        }
+        opts.onDiagToggle?.("passthrough", on, false, { skipReload: true });
+      },
+    });
+    diagSection.button("Reset diagnostics", {
+      subtle: true,
+      onClick: () => opts.onDiagReset?.(),
+    });
+  }
 
   function rebuildControls() {
     const { camera, controls, spark, outline, splat, paletteUniforms } =

@@ -13,7 +13,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `?p=<base64>` — load a shared preset (decoded by `preset.js`). Stripped from the URL after apply so refresh / "swap splat" doesn't re-trigger.
 - `?vanilla` — bypass the entire customization pipeline (custom shaders, FBO, outline pass, palette modifier, debug pane). Routes to `createVanillaSplatViewer` for diagnosing whether a rendering issue is ours or Spark's.
 - `?debug` — force the debug panel on (it's already on by default for this page via `<body data-debug>`).
-- **Diagnostic flags** (one per pipeline variable, used by the DIAGNOSTICS section in the debug panel): `customFrag`, `customVert`, `depthWrite`, `strictSort`, `mrt`, `passthrough`, `twoPass`. Default values live in `DIAG_DEFAULTS` in `splat.js`. Toggling a checkbox in the panel sets the param and reloads the viewer with that one variable changed; flags at default are stripped from the URL. Useful for hunting regressions or A/B-ing pipeline variants.
+- `?diag` — render the DIAGNOSTICS section in the debug panel. Without this, the toggles are hidden so production URLs stay clean; the individual pipeline flags still take effect if present in the URL, `?diag` only controls whether the toggle UI is shown.
+- **Pipeline flags** (one per variable, surfaced by the DIAGNOSTICS section): `customFrag`, `customVert`, `depthWrite`, `strictSort`, `mrt`, `passthrough`, `twoPass`. Default values live in `DIAG_DEFAULTS` in `splat.js`. Toggling a checkbox sets the param and reloads the viewer with that one variable changed; flags at default are stripped from the URL. Useful for hunting regressions or A/B-ing pipeline variants.
 
 ## Architecture
 

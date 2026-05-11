@@ -70,6 +70,55 @@
         flex: 1;
       }
 
+      /* Drawer toggle — only used on mobile (hidden on desktop). */
+      #debug-toggle {
+        display: none;
+      }
+
+      /* Mobile: debug pane becomes a bottom drawer covering ~25vh when
+         open. Closed state slides off-screen leaving just the toggle
+         visible above the screen edge. */
+      @media (max-width: 768px) {
+        #debug-panel {
+          top: auto;
+          right: 0;
+          left: 0;
+          bottom: 0;
+          max-width: none;
+          max-height: 25vh;
+          border-radius: 12px 12px 0 0;
+          padding: 0 14px;
+          /* Closed by default: push the panel down so only the toggle
+             handle sits above the screen edge. Open: slide to bottom. */
+          transform: translateY(calc(100% - 36px));
+          transition: transform 0.2s ease-out;
+          /* Extra room at the bottom of the scroll area so the last
+             control can clear iOS browser chrome / safe area. */
+          padding-bottom: calc(48px + env(safe-area-inset-bottom, 0));
+        }
+        #debug-panel.drawer-open {
+          transform: translateY(0);
+        }
+        #debug-toggle {
+          display: block;
+          position: sticky;
+          top: 0;
+          width: calc(100% + 28px);
+          margin: 0 -14px 8px;
+          background: rgba(255, 255, 255, 0.06);
+          color: #e8c96e;
+          border: none;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+          padding: 10px 14px;
+          font-family: monospace;
+          font-size: 11px;
+          letter-spacing: 0.12em;
+          cursor: pointer;
+          text-align: center;
+          z-index: 1;
+        }
+      }
+
       /* Tiny "back home" link, top-left */
       #home-link {
         position: fixed;
@@ -297,6 +346,9 @@
     <div id="splat-mount"></div>
 
     <div id="debug-panel">
+      <button id="debug-toggle" type="button" aria-expanded="false">
+        ▾ debug
+      </button>
       <div id="debug-log"></div>
       <div id="debug-controls"></div>
     </div>
