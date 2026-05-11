@@ -43,15 +43,6 @@ export function createSplatViewer(cfg, parentEl, overrides = {}) {
 
   const spark = new SparkRenderer({
     renderer,
-    // depthWrite=true populates the depth buffer for outline detection.
-    // sortRadial=false flips Spark from its default radial sort (fast but
-    // loose) to strict back-to-front Z-sort. The combination matters:
-    // with depthWrite alone + radial sort, splats that get drawn slightly
-    // out of strict z-order write their depth and end up culling later-
-    // drawn splats that are actually farther — which produced the chunky
-    // hard-edged splat look. Strict Z-sort means every splat passes the
-    // depth test against the previous one, so the depth buffer fills up
-    // correctly without disrupting alpha accumulation.
     depthWrite: true,
     sortRadial: true,
     vertexShader: SPLAT_VERT_GLSL,

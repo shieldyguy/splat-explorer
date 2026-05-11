@@ -411,11 +411,7 @@ void main() {
         rgba.rgb = srgbToLinear(rgba.rgb);
     }
 
-    #ifdef PREMULTIPLIED_ALPHA
-        fragColor = vec4(rgba.rgb * rgba.a, rgba.a);
-    #else
-        fragColor = rgba;
-    #endif
+    fragColor = vec4(rgba.rgb * rgba.a, rgba.a);
 
     // Pack view-space normal into RGB ([-1,1] → [0,1]). Alpha=1 marks "valid normal".
     fragNormal = vec4(normalize(vViewNormal) * 0.5 + 0.5, 1.0);
