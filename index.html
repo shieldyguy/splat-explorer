@@ -469,9 +469,10 @@
           left: 0;
           right: 0;
           width: 100%;
-          max-height: 33vh;
+          height: 35vh;
+          max-height: 35vh;
           border-radius: 14px 14px 0 0;
-          transform: translateY(calc(33vh - 32px));
+          transform: translateY(calc(35vh - 32px));
           transition: transform 0.22s ease-out;
           box-shadow: 0 -2px 28px -8px rgba(28, 26, 23, 0.28);
         }
@@ -521,13 +522,40 @@
         .tab {
           font-size: 13px;
           white-space: nowrap;
+          padding: 13px 0 12px;
         }
         .panel-actions {
           gap: 4px;
         }
 
         .panel-body {
-          padding: 4px 14px calc(14px + env(safe-area-inset-bottom, 0));
+          padding: 4px 14px calc(36px + env(safe-area-inset-bottom, 0));
+          scrollbar-width: none;
+          -ms-overflow-style: none;
+        }
+        .panel-body::-webkit-scrollbar {
+          display: none;
+        }
+        /* Soft top fade so scrolled-up content slips under the tab bar
+           instead of clipping against a hard edge. */
+        .panel-body::before {
+          content: "";
+          position: sticky;
+          top: 0;
+          display: block;
+          height: 10px;
+          margin: 0 -14px -10px;
+          background: linear-gradient(
+            to bottom,
+            var(--surface) 0%,
+            rgba(252, 250, 245, 0) 100%
+          );
+          pointer-events: none;
+          z-index: 1;
+        }
+        .control-row {
+          padding: 13px 0;
+          min-height: 44px;
         }
         .control-range {
           width: 120px;
