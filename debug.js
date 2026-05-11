@@ -143,5 +143,14 @@ export function section() {
       addTo(el);
       setTimeout(() => el.remove(), 2000);
     },
+
+    header(text) {
+      if (!active) return;
+      const el = document.createElement("div");
+      el.textContent = text;
+      el.style.cssText =
+        "color:#e8c96e;font-size:10px;letter-spacing:0.12em;margin:8px 0 4px;border-top:1px solid rgba(255,255,255,0.15);padding-top:8px;";
+      addTo(el);
+    },
   };
 }

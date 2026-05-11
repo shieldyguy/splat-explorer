@@ -15,6 +15,28 @@ import * as debug from "./debug.js";
 //   minDist, maxDist  — OrbitControls zoom limits
 //   pixelRatio        — clamp dpr (default 1.5)
 export function createSplatViewer(cfg, parentEl, overrides = {}) {
+  // Pipeline flags from the URL/diagnostic panel. Production defaults are
+  // set in splat.js's DIAG_DEFAULTS; flipping any of these reloads the
+  // viewer with that single variable changed.
+  //
+  // The default is a two-pass pipeline:
+  //   Pass 1 (color)    — depth fully off, splats alpha-integrate cleanly.
+  //   Pass 2 (geometry) — depth on, MRT populates normal + depth for the
+  //                       outline composite to Sobel against.
+  //   Pass 3 (composite)— outline shader reads color from pass 1's target
+  //                       and depth/normal from pass 2's MRT.
+  // Spark caches `depthWrite` at construction so we can't toggle it at
+  // runtime — instead we construct with depthWrite=true (capability on)
+  // and mask depth state per-pass via Three's renderer.state buffer API.
+  const diag = overrides.diag ?? {};
+  const useCustomFrag = diag.customFrag !== false;
+  const useCustomVert = diag.customVert !== false;
+  const useStrictSort = diag.strictSort === true;
+  const usePassthrough = diag.passthrough === true;
+  const useTwoPass = diag.twoPass !== false;
+  const useMrt = useTwoPass ? true : diag.mrt !== false;
+  const useDepthWrite = useTwoPass ? true : diag.depthWrite !== false;
+
   const section = document.createElement("section");
   section.className = "splat-section";
   const canvas = document.createElement("canvas");
@@ -41,12 +63,10 @@ export function createSplatViewer(cfg, parentEl, overrides = {}) {
   controls.maxDistance = overrides.maxDist ?? cfg.maxDist ?? 10;
   controls.target.set(...(cfg.target ?? [0, 0, 0]));
 
-  const spark = new SparkRenderer({
+  const sparkConfig = {
     renderer,
-    depthWrite: true,
-    sortRadial: true,
-    vertexShader: SPLAT_VERT_GLSL,
-    fragmentShader: SPLAT_FRAG_GLSL,
+    depthWrite: useDepthWrite,
+    sortRadial: !useStrictSort,
     extraUniforms: {
       alphaThreshold: { value: 0.0 },
       minOpacity: { value: 0.0 },
@@ -61,10 +81,33 @@ export function createSplatViewer(cfg, parentEl, overrides = {}) {
       screenMinWidth: { value: 0.0 },
       screenMaxWidth: { value: 100.0 },
     },
-  });
+  };
+  if (useCustomVert) sparkConfig.vertexShader = SPLAT_VERT_GLSL;
+  if (useCustomFrag) sparkConfig.fragmentShader = SPLAT_FRAG_GLSL;
+  const spark = new SparkRenderer(sparkConfig);
   scene.add(spark);
 
+  // Always create the outline struct so debug-panel sliders + preset
+  // encode/decode keep working regardless of diag.mrt. When MRT is off
+  // we just skip the FBO render path; uniforms become inert.
   const outline = createOutlinePass({ width: 1, height: 1 });
+  outline.uniforms.uPassthrough.value = usePassthrough;
+
+  // Two-pass mode: a separate single-attachment color FBO captures the
+  // splat color (rendered with no depth interaction → proper alpha
+  // integration, no flicker, no bright edges). The existing MRT FBO is
+  // re-used for the geometry pass (depth + normal). The composite shader
+  // samples color from this target and depth/normal from the MRT.
+  let colorTarget = null;
+  if (useTwoPass) {
+    colorTarget = new THREE.WebGLRenderTarget(1, 1, {
+      depthBuffer: false,
+      stencilBuffer: false,
+      minFilter: THREE.NearestFilter,
+      magFilter: THREE.NearestFilter,
+    });
+    outline.uniforms.tDiffuse.value = colorTarget.texture;
+  }
 
   function resize() {
     const rect = section.getBoundingClientRect();
@@ -72,10 +115,10 @@ export function createSplatViewer(cfg, parentEl, overrides = {}) {
     renderer.setSize(rect.width, rect.height, false);
     camera.aspect = rect.width / rect.height;
     camera.updateProjectionMatrix();
-    outline.setSize(
-      Math.max(1, Math.floor(rect.width * dpr)),
-      Math.max(1, Math.floor(rect.height * dpr)),
-    );
+    const w = Math.max(1, Math.floor(rect.width * dpr));
+    const h = Math.max(1, Math.floor(rect.height * dpr));
+    outline.setSize(w, h);
+    if (colorTarget) colorTarget.setSize(w, h);
   }
   resize();
   window.addEventListener("resize", resize);
@@ -121,16 +164,53 @@ export function createSplatViewer(cfg, parentEl, overrides = {}) {
     lastRenderTime = now;
     controls.update();
 
-    // Pass 1: scene → outline FBO (color + depth)
-    renderer.setRenderTarget(outline.renderTarget);
-    renderer.clear();
-    renderer.render(scene, camera);
+    if (useTwoPass) {
+      const depth = renderer.state.buffers.depth;
 
-    // Pass 2: outline post-process → canvas
-    renderer.setRenderTarget(null);
-    outline.uniforms.uNear.value = camera.near;
-    outline.uniforms.uFar.value = camera.far;
-    renderer.render(outline.scene, outline.camera);
+      // Pass 1 — color: mask depth off so Spark's constructed-with-
+      // depthWrite=true setup doesn't cull anything in this pass.
+      // Three's state cache calls gl.depthMask(false) / gl.disable(DEPTH_TEST).
+      depth.setMask(false);
+      depth.setTest(false);
+      renderer.setRenderTarget(colorTarget);
+      renderer.clear();
+      renderer.render(scene, camera);
+
+      // Pass 2 — geometry: re-enable depth so depth+normal populate
+      // against the closest passing splat fragment. Color attachment 0
+      // of the MRT also gets written but the composite ignores it
+      // (tDiffuse points at colorTarget).
+      depth.setTest(true);
+      depth.setMask(true);
+      depth.setFunc(THREE.LessEqualDepth);
+      renderer.setRenderTarget(outline.renderTarget);
+      renderer.clear();
+      renderer.render(scene, camera);
+
+      // Pass 3 — composite to canvas.
+      renderer.setRenderTarget(null);
+      outline.uniforms.uNear.value = camera.near;
+      outline.uniforms.uFar.value = camera.far;
+      renderer.render(outline.scene, outline.camera);
+    } else if (useMrt) {
+      // Pass 1: scene → outline FBO (color + depth)
+      renderer.setRenderTarget(outline.renderTarget);
+      renderer.clear();
+      renderer.render(scene, camera);
+
+      // Pass 2: outline post-process → canvas
+      renderer.setRenderTarget(null);
+      outline.uniforms.uNear.value = camera.near;
+      outline.uniforms.uFar.value = camera.far;
+      renderer.render(outline.scene, outline.camera);
+    } else {
+      // Diag: skip the FBO + composite stack entirely. Render the splats
+      // straight to the canvas — closest to vanilla Spark output, but with
+      // whatever shader/depth/sort settings the rest of diag dictates.
+      renderer.setRenderTarget(null);
+      renderer.clear();
+      renderer.render(scene, camera);
+    }
 
     if (dampingFrames > 0) {
       dampingFrames--;
@@ -160,6 +240,7 @@ export function createSplatViewer(cfg, parentEl, overrides = {}) {
     clearInterval(loadPoll);
     clearTimeout(loadPollTimeout);
     section.remove();
+    if (colorTarget) colorTarget.dispose();
     outline.dispose();
     renderer.dispose();
   }
@@ -176,6 +257,15 @@ export function createSplatViewer(cfg, parentEl, overrides = {}) {
     splat,
     paletteUniforms,
     destroy,
+    diag: {
+      customFrag: useCustomFrag,
+      customVert: useCustomVert,
+      depthWrite: useDepthWrite,
+      strictSort: useStrictSort,
+      mrt: useMrt,
+      passthrough: usePassthrough,
+      twoPass: useTwoPass,
+    },
   };
 }
 
@@ -187,6 +277,7 @@ export function setupDebugPanel(viewers, splats, opts = {}) {
   // Selector lives in its own section so rebuildControls()'s clear()
   // doesn't wipe it.
   const selectorSection = debug.section();
+  const diagSection = debug.section();
   const splatDebug = debug.section();
   let selected = viewers[0];
   let cancelled = false;
@@ -209,6 +300,45 @@ export function setupDebugPanel(viewers, splats, opts = {}) {
       },
     );
   }
+
+  // --- Diagnostic toggles ---
+  // Five reload-required toggles isolate one variable each in the splat
+  // pipeline; the sixth (passthrough) is a live uniform flip on the outline
+  // composite shader. The current viewer's `diag` reflects URL state.
+  const d = selected.diag ?? {};
+  // `def` mirrors splat.js's DIAG_DEFAULTS — used so toggles that match
+  // production get stripped from the URL instead of cluttering it with
+  // `?key=1` for the default.
+  const reloadFlags = [
+    { key: "customFrag", label: "Custom frag shader", def: true },
+    { key: "customVert", label: "Custom vert shader", def: true },
+    { key: "depthWrite", label: "Depth write",        def: true },
+    { key: "strictSort", label: "Strict z-sort",      def: false },
+    { key: "mrt",        label: "MRT + outline pass", def: true },
+    { key: "twoPass",    label: "Two-pass geometry",  def: true },
+  ];
+  diagSection.header("DIAGNOSTICS");
+  reloadFlags.forEach((f) => {
+    diagSection.checkbox(f.label, {
+      value: d[f.key] ?? f.def,
+      onChange: (on) => opts.onDiagToggle?.(f.key, on, f.def),
+    });
+  });
+  diagSection.checkbox("Composite passthrough", {
+    value: d.passthrough ?? false,
+    onChange: (on) => {
+      if (selected.outline) {
+        selected.outline.uniforms.uPassthrough.value = on;
+        selected.scheduleRender();
+      }
+      // Persist so reloads keep the toggle (no viewer rebuild needed here).
+      opts.onDiagToggle?.("passthrough", on, false, { skipReload: true });
+    },
+  });
+  diagSection.button("Reset diagnostics", {
+    subtle: true,
+    onClick: () => opts.onDiagReset?.(),
+  });
 
   function rebuildControls() {
     const { camera, controls, spark, outline, splat, paletteUniforms } =
@@ -542,6 +672,7 @@ export function setupDebugPanel(viewers, splats, opts = {}) {
     destroy() {
       cancelled = true;
       selectorSection.remove();
+      diagSection.remove();
       splatDebug.remove();
     },
   };

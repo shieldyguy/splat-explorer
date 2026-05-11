@@ -13,16 +13,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `?p=<base64>` — load a shared preset (decoded by `preset.js`). Stripped from the URL after apply so refresh / "swap splat" doesn't re-trigger.
 - `?vanilla` — bypass the entire customization pipeline (custom shaders, FBO, outline pass, palette modifier, debug pane). Routes to `createVanillaSplatViewer` for diagnosing whether a rendering issue is ours or Spark's.
 - `?debug` — force the debug panel on (it's already on by default for this page via `<body data-debug>`).
+- **Diagnostic flags** (one per pipeline variable, used by the DIAGNOSTICS section in the debug panel): `customFrag`, `customVert`, `depthWrite`, `strictSort`, `mrt`, `passthrough`, `twoPass`. Default values live in `DIAG_DEFAULTS` in `splat.js`. Toggling a checkbox in the panel sets the param and reloads the viewer with that one variable changed; flags at default are stripped from the URL. Useful for hunting regressions or A/B-ing pipeline variants.
 
 ## Architecture
 
 Single-viewer playground. `splat.js` owns the lifecycle (one viewer at a time, `disposeCurrent()` before swap). `splat-viewer.js` builds the renderer/scene/camera/controls + post-process; `setupDebugPanel` wires every uniform to a slider/toggle.
 
-**Two-pass render pipeline** (non-vanilla):
-1. Scene → MRT `WebGLRenderTarget` (color at attachment 0, packed view-space normal at attachment 1, depth texture). Custom Spark splat shaders (`splat-shaders.js`) are near-verbatim copies of Spark 2.0's `splatVertex.glsl` / `splatFragment.glsl` with three additions: emit per-splat view-space normal, alpha-threshold discard so depth/normal only write at "solid" splat surfaces, MRT outputs.
-2. Fullscreen quad (`outline-pass.js`) samples color + depth + normal, runs Sobel on both depth and normal, mixes via `uEdgeMix` (0=depth, 1=normal), composites outline over scene.
+**Three-pass render pipeline** (default, when `twoPass=true`):
+1. **Color pass** → single-attachment `colorTarget` FBO. Three's `renderer.state.buffers.depth` is masked off (`setMask(false)`, `setTest(false)`) so splats alpha-integrate cleanly with no depth-test culling. This is the visible image — wacky shapes, custom alpha, palette quantization, all of it.
+2. **Geometry pass** → MRT `outline.renderTarget` (normal at attachment 1, depth texture). Depth is re-enabled with `LessEqualDepth` so the closest passing fragment wins per pixel, giving a clean "front-surface" depth + normal buffer for edge detection. Color attachment 0 also gets written but the composite ignores it.
+3. **Composite pass** → canvas. `outline-pass.js`'s fullscreen quad samples color from `colorTarget`, depth and normal from the MRT, runs Sobel on both, mixes via `uEdgeMix` (0=depth, 1=normal), composites outline over scene.
 
-**Spark config that matters** (`splat-viewer.js`): `depthWrite: true` + `sortRadial: false`. The combination is load-bearing — `depthWrite` alone with the default radial sort writes depth out of strict z-order and culls later splats that are actually farther, which produces a chunky hard-edged look. Strict back-to-front sort + depth write fills the depth buffer correctly without breaking alpha accumulation.
+**Why two passes**: a single-pass render with `depthWrite=true` causes depth-test culling to drop translucent splat contributions that should integrate, producing bright halos around splats. Strict z-sort masks the symptom but introduces orbit flicker (sort flips on near-coincident splats). The two-pass split decouples the "I need a clean color" requirement from the "I need a depth buffer" requirement and resolves both. Spark caches `depthWrite` at construction so we can't toggle it at runtime — instead we construct with `depthWrite: true` (capability on) and gate it per-pass via Three's renderer state buffer API.
+
+**Custom Spark splat shaders** (`splat-shaders.js`): near-verbatim copies of Spark 2.0's `splatVertex.glsl` / `splatFragment.glsl` with three additions: emit per-splat view-space normal as a flat varying, alpha-threshold discard so depth/normal only write at "solid" splat surfaces, MRT outputs (`fragColor` at location 0, packed `fragNormal` at location 1).
 
 **Per-splat color quantization** (`splat-modifier.js`): a Spark `dyno.Dyno` modifier on the `SplatMesh.objectModifier` slot. RGB → HSV → bucket-quantize hue and tone independently → RGB. Mutating uniforms requires `splat.updateVersion()` to re-bake.
 

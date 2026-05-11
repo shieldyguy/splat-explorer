@@ -43,6 +43,7 @@ uniform bool  uShowNormals;
 uniform bool  uShowColor;
 uniform bool  uOutlinesOnly;
 uniform bool  uEnabled;
+uniform bool  uPassthrough;   // diag: bypass all composite math, write FBO color straight through
 
 float linearizeDepth(float d) {
   float z = d * 2.0 - 1.0;
@@ -62,6 +63,10 @@ vec3 sampleNormal(vec2 uv) {
 
 void main() {
   vec4 sceneColor = texture2D(tDiffuse, vUv);
+  if (uPassthrough) {
+    gl_FragColor = sceneColor;
+    return;
+  }
   vec2 texel = uRadius / uResolution;
 
   float dc = sampleLinearDepth(vUv);
@@ -165,6 +170,7 @@ export function createOutlinePass({ width = 1, height = 1 } = {}) {
     uShowColor: { value: true },
     uOutlinesOnly: { value: false },
     uEnabled: { value: false },
+    uPassthrough: { value: false },
   };
 
   const material = new THREE.ShaderMaterial({

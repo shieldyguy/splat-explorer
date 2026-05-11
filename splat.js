@@ -19,6 +19,40 @@ import {
 const VANILLA = new URLSearchParams(location.search).has("vanilla");
 if (VANILLA) document.body.classList.add("vanilla");
 
+// Per-knob diagnostic flags read from the URL. Defaults are production
+// behavior — flipping one reloads the viewer with that single pipeline
+// variable changed, useful for poking at the renderer or hunting regressions.
+//
+// History note: depthWrite=true with single-pass rendering caused bright
+// halos around splats (depth-test culling dropped contributions that should
+// have integrated). Strict z-sort masked the symptom but introduced orbit
+// flicker. The fix is twoPass=true: render color with depth fully off, then
+// render geometry into the MRT with depth on. See CLAUDE.md.
+const DIAG_DEFAULTS = {
+  customFrag: true,
+  customVert: true,
+  depthWrite: true,   // ignored when twoPass=true; only affects single-pass mode
+  strictSort: false,  // radial (Spark default); only matters when twoPass=false
+  mrt: true,
+  passthrough: false, // composite passthrough — debug only
+  twoPass: true,      // the fix
+};
+function readDiag() {
+  const p = new URLSearchParams(location.search);
+  const out = {};
+  for (const [k, def] of Object.entries(DIAG_DEFAULTS)) {
+    const v = p.get(k);
+    out[k] = v === null ? def : !(v === "0" || v === "off" || v === "false");
+  }
+  return out;
+}
+function writeDiagFlag(key, on, def) {
+  const url = new URL(location);
+  if (on === def) url.searchParams.delete(key);
+  else url.searchParams.set(key, on ? "1" : "0");
+  history.replaceState(null, "", url);
+}
+
 // Hardcoded demos. Big files live on Cloudflare R2; the small Pebbles demo
 // is in the repo so the homepage can serve it directly without a network hop.
 //
@@ -134,7 +168,11 @@ function disposeCurrent() {
   }
 }
 
-function loadCfg(cfg, demoIndex = null) {
+function loadCfg(cfg, demoIndex = null, loadOpts = {}) {
+  // keepCamera defaults to true (demo-swap behavior). diag-reload sets it
+  // false so the user's current framing carries across the rebuild.
+  const keepCamera = loadOpts.keepCamera ?? true;
+
   // Capture the outgoing viewer's settings before we destroy it so the
   // user's lens carries forward to the next splat.
   if (currentViewer && !VANILLA) {
@@ -155,6 +193,7 @@ function loadCfg(cfg, demoIndex = null) {
     enableDamping: false,
     frameInterval: 1000 / 24,
     onProgress: isUrlLoad ? updateProgress : undefined,
+    diag: readDiag(),
   });
   viewer.demoIndex = demoIndex;
   currentViewer = viewer;
@@ -165,14 +204,25 @@ function loadCfg(cfg, demoIndex = null) {
     if (!defaultsPreset) {
       defaultsPreset = decodePreset(encodePresetFromViewer(viewer, 0));
     }
-    // Apply the carried-over settings (from the previous splat) but
-    // leave the new splat's camera/framing alone.
+    // Apply carried-over settings. keepCamera=true (default) preserves
+    // the new splat's framing on demo swap; false forces inheriting the
+    // outgoing camera (used for diag-toggle reloads on the same splat).
     if (inheritedSettings) {
-      applyPresetToViewer(viewer, inheritedSettings, { keepCamera: true });
+      applyPresetToViewer(viewer, inheritedSettings, { keepCamera });
     }
     currentDebug = setupDebugPanel([viewer], [cfg], {
       onSelect: undefined,
       onRestoreDefaults: handleRestoreDefaults,
+      onDiagToggle: (key, on, def, opts2 = {}) => {
+        writeDiagFlag(key, on, def);
+        if (!opts2.skipReload) reloadViewerForDiag();
+      },
+      onDiagReset: () => {
+        const url = new URL(location);
+        for (const k of Object.keys(DIAG_DEFAULTS)) url.searchParams.delete(k);
+        history.replaceState(null, "", url);
+        reloadViewerForDiag();
+      },
     });
   }
   hidePicker();
@@ -184,6 +234,14 @@ function loadCfg(cfg, demoIndex = null) {
     hideProgress();
   }
   return viewer;
+}
+
+// Re-create the viewer with whatever DIAG flags are currently in the URL.
+// Carries the user's current camera + uniforms forward so a diag flip
+// doesn't yank framing out from under them.
+function reloadViewerForDiag() {
+  if (!currentViewer) return;
+  loadCfg(currentViewer.cfg, currentViewer.demoIndex, { keepCamera: false });
 }
 
 async function loadFile(file) {
