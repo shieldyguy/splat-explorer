@@ -623,20 +623,17 @@
         .control-range::-moz-range-track {
           height: 2px;
         }
-        /* Keep the visible dot at 12px, but pad the hit target out to
-           ~24px via a transparent border + content-box clipping. */
+        /* Bigger thumb on touch — fingers aren't cursors. iOS native
+           sliders use ~28px; we go ~22 for a slightly more restrained
+           feel that still gives a real target. */
         .control-range::-webkit-slider-thumb {
-          width: 24px;
-          height: 24px;
-          border: 6px solid transparent;
-          background-clip: content-box;
-          margin-top: -11px;
+          width: 22px;
+          height: 22px;
+          margin-top: -10px;
         }
         .control-range::-moz-range-thumb {
-          width: 24px;
-          height: 24px;
-          border: 6px solid transparent;
-          background-clip: content-box;
+          width: 22px;
+          height: 22px;
         }
 
         #home-link {
