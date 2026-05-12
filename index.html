@@ -612,7 +612,31 @@
         /* Taller hit zone for fingers — the range input registers taps
            anywhere inside its box, not just on the visible track. */
         .control-range {
-          height: 28px;
+          height: 32px;
+          /* Claim horizontal drags so the scrollable panel doesn't
+             steal them as vertical scrolls. */
+          touch-action: pan-x;
+        }
+        .control-range::-webkit-slider-runnable-track {
+          height: 2px;
+        }
+        .control-range::-moz-range-track {
+          height: 2px;
+        }
+        /* Keep the visible dot at 12px, but pad the hit target out to
+           ~24px via a transparent border + content-box clipping. */
+        .control-range::-webkit-slider-thumb {
+          width: 24px;
+          height: 24px;
+          border: 6px solid transparent;
+          background-clip: content-box;
+          margin-top: -11px;
+        }
+        .control-range::-moz-range-thumb {
+          width: 24px;
+          height: 24px;
+          border: 6px solid transparent;
+          background-clip: content-box;
         }
 
         #home-link {
